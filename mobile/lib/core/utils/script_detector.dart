@@ -37,19 +37,16 @@ class ScriptDetector {
     String? currentLang;
     final currentTokens = <String>[];
 
-    for (final token in tokens) {
-      final bnCount = _bengaliRegex.allMatches(token).length;
-      final enCount = _latinRegex.allMatches(token).length;
-      String? tokenLang;
-      if (bnCount > 0 || enCount > 0) {
-        tokenLang = bnCount >= enCount ? 'bn' : 'en';
-      }
+    for (var idx = 0; idx < tokens.length; idx++) {
+      final token = tokens[idx];
+      final tokenLang = _tokenLanguage(token);
 
       if (tokenLang == null) {
         if (currentTokens.isNotEmpty) {
           currentTokens.add(token);
         } else {
-          currentLang = _bengaliRegex.hasMatch(normalized) ? 'bn' : 'en';
+          // Attach leading neutral tokens (numbers, punctuation) to the first upcoming script.
+          currentLang = _firstScriptFrom(tokens, idx + 1) ?? 'en';
           currentTokens.add(token);
         }
         continue;
@@ -80,5 +77,20 @@ class ScriptDetector {
     }
 
     return groups;
+  }
+
+  static String? _tokenLanguage(String token) {
+    final bnCount = _bengaliRegex.allMatches(token).length;
+    final enCount = _latinRegex.allMatches(token).length;
+    if (bnCount == 0 && enCount == 0) return null;
+    return bnCount >= enCount ? 'bn' : 'en';
+  }
+
+  static String? _firstScriptFrom(List<String> tokens, int startIndex) {
+    for (var i = startIndex; i < tokens.length; i++) {
+      final lang = _tokenLanguage(tokens[i]);
+      if (lang != null) return lang;
+    }
+    return null;
   }
 }
