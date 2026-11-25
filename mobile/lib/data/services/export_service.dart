@@ -14,9 +14,11 @@ class ExportService {
       throw const AppException('Audio file no longer exists on device.');
     }
     final mime = format.toLowerCase() == 'mp3' ? 'audio/mpeg' : 'audio/wav';
-    await Share.shareXFiles(
-      [XFile(filePath, mimeType: mime)],
-      subject: 'MyVoice AI ($label.$format)',
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(filePath, mimeType: mime)],
+        subject: 'MyVoice AI ($label.$format)',
+      ),
     );
   }
 }

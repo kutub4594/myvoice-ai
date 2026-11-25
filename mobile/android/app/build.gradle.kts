@@ -17,7 +17,7 @@ android {
     defaultConfig {
         applicationId = "com.myvoiceai.app"
         minSdk = 24 // Android 7.0+
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

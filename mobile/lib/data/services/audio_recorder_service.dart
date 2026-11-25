@@ -54,11 +54,10 @@ class AudioRecorderService {
   }
 
   Future<PickedAudioFile?> pickAudioFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final picked = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const ['wav', 'mp3', 'm4a', 'ogg', 'flac'],
     );
-    final picked = result?.files.singleOrNull;
     if (picked?.path == null) return null;
 
     final ext = p.extension(picked!.path!).replaceFirst('.', '').toLowerCase();

@@ -51,9 +51,11 @@ class DatasetExportService {
     final zipPath = await _storage.createDatasetExportZipPath();
     await File(zipPath).writeAsBytes(zipBytes, flush: true);
 
-    await Share.shareXFiles(
-      [XFile(zipPath, mimeType: 'application/zip')],
-      subject: 'MyVoice AI Personal Voice Dataset (${metadataLines.length} clips)',
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(zipPath, mimeType: 'application/zip')],
+        subject: 'MyVoice AI Personal Voice Dataset (${metadataLines.length} clips)',
+      ),
     );
 
     return zipPath;
