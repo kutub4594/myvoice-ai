@@ -53,9 +53,17 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.5"
+          flutter-version: "3.50.1"
           channel: "stable"
           cache: true
+
+      - name: Ensure Android SDK 35 and 36 platforms are installed
+        run: |
+          SDK_MANAGER="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDK_MANAGER" ]; then
+            yes | "$SDK_MANAGER" --licenses >/dev/null || true
+            "$SDK_MANAGER" "platforms;android-35" "platforms;android-36" "build-tools;36.0.0"
+          fi
 
       - name: Ensure Android Gradle wrapper exists
         run: |
