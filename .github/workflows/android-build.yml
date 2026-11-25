@@ -1,0 +1,87 @@
+name: CI - Backend Tests & Flutter Android Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  backend-tests:
+    name: Python Backend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install backend core dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python unit tests
+        run: python -m unittest discover -s tests -v
+
+  flutter-android-build:
+    name: Flutter Tests & Android APK Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: "stable"
+          cache: true
+
+      - name: Ensure Android Gradle wrapper exists
+        run: |
+          if [ ! -f android/gradlew ]; then
+            flutter create --platforms=android "${RUNNER_TEMP}/flutter_tpl"
+            cp "${RUNNER_TEMP}/flutter_tpl/android/gradlew" android/gradlew
+            cp "${RUNNER_TEMP}/flutter_tpl/android/gradlew.bat" android/gradlew.bat
+            cp "${RUNNER_TEMP}/flutter_tpl/android/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
+            chmod +x android/gradlew
+          fi
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Run Flutter static analysis
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run Flutter unit & widget tests
+        run: flutter test
+
+      - name: Build Android Release APK
+        run: flutter build apk --release
+
+      - name: Upload Release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: myvoice-ai-release-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14

@@ -1,0 +1,16 @@
+# Optional ML inference dependencies (install on Python 3.10-3.12 GPU/CPU host when enabling real models).
+# Do NOT install automatically during scaffold phase; verify model licenses before production use.
+
+# Primary Engine (IndicF5 + F5-TTS + Auto-transcription)
+# torch>=2.3.0
+# torchaudio>=2.3.0
+# f5-tts
+# transformers>=4.44.0
+# faster-whisper>=1.0.3
+# soundfile>=0.12.1
+# numpy>=1.26.0
+
+# CPU Fallback Engine (MMS-TTS Bengali + Piper English + OpenVoice v2)
+# piper-tts>=1.2.0
+# librosa>=0.10.2
+# openvoice  # Install from myshell-ai/OpenVoice repository when integrating

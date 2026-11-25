@@ -1,0 +1,76 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+backend/.env
+backend/tmp/
+backend/models/
+tmp/
+temp/
+*.tmp
+*.log
+
+# Private voice samples, datasets, databases & exported archives
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.aac
+*.opus
+*.zip
+datasets/
+recordings/
+myvoice_vault/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# AI model weights & checkpoints
+/models/
+/backend/models/
+/checkpoints/
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.bin
+*.onnx
+
+# Flutter / Dart / Android
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/key.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

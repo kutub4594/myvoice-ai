@@ -1,0 +1,32 @@
+name: myvoice_ai
+description: Personal high-fidelity AI voice cloning app for Bengali and English (Flutter + Python backend).
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  archive: ^3.6.1
+  dio: ^5.7.0
+  file_picker: ^8.1.2
+  flutter_riverpod: ^2.5.1
+  intl: ^0.19.0
+  just_audio: ^0.9.40
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  permission_handler: ^11.3.1
+  record: ^5.1.2
+  share_plus: ^10.0.2
+  sqflite: ^2.3.3+1
+  uuid: ^4.5.0
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

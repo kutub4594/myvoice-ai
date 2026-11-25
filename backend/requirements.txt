@@ -1,0 +1,12 @@
+# Core FastAPI backend dependencies (lightweight, zero multi-GB ML downloads)
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.30.0,<1.0.0
+pydantic>=2.7.0,<3.0.0
+pydantic-settings>=2.3.0,<3.0.0
+python-multipart>=0.0.9,<1.0.0
+
+# Optional Gradio UI (enable with ENABLE_GRADIO=true for Hugging Face Spaces)
+gradio>=4.44.0,<6.0.0
+
+# Testing
+httpx>=0.27.0,<1.0.0
