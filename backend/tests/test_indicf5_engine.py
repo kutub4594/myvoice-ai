@@ -6,6 +6,7 @@ modules unless RUN_LIVE_INDICF5_TESTS=1 is explicitly set on a GPU host with HF 
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import math
 import os
@@ -46,6 +47,22 @@ def _install_fake_ml_modules(model_obj: object):
     fake_backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False))
     fake_torch.cuda = fake_cuda  # type: ignore[attr-defined]
     fake_torch.backends = fake_backends  # type: ignore[attr-defined]
+
+    ctx_calls = {"inference_mode": 0, "no_grad": 0}
+
+    @contextlib.contextmanager
+    def _fake_inference_mode():
+        ctx_calls["inference_mode"] += 1
+        yield
+
+    @contextlib.contextmanager
+    def _fake_no_grad():
+        ctx_calls["no_grad"] += 1
+        yield
+
+    fake_torch._ctx_calls = ctx_calls  # type: ignore[attr-defined]
+    fake_torch.inference_mode = _fake_inference_mode  # type: ignore[attr-defined]
+    fake_torch.no_grad = _fake_no_grad  # type: ignore[attr-defined]
 
     class _FakeAutoModel:
         last_args: tuple | None = None
@@ -237,11 +254,84 @@ class IndicF5EngineTests(unittest.TestCase):
                 self.assertTrue(result_path.read_bytes().startswith(b"RIFF"))
                 self.assertEqual(calls[0]["to_device"], "cpu")
                 self.assertEqual(calls[1]["ref_text"], "আমি বাংলায় কথা বলছি।")
+                self.assertEqual(fake_mods["torch"]._ctx_calls["inference_mode"], 1)  # type: ignore[attr-defined]
+                self.assertEqual(fake_mods["torch"]._ctx_calls["no_grad"], 0)  # type: ignore[attr-defined]
                 # Never expose actual secret token in runtime_details
                 details = engine.runtime_details()
                 self.assertTrue(details["hf_token_configured"])
                 self.assertNotIn("hf_test_secret_token", str(details))
                 self.assertEqual(details["device"]["active_inference_jobs"], 0)
+
+    def test_falls_back_to_no_grad_when_torch_lacks_inference_mode(self) -> None:
+        from app.config import Settings
+        from app.engines.base import EngineSynthesisInput
+        from app.engines.indicf5_engine import IndicF5BengaliEngine
+
+        class _FakeIndicF5Model:
+            def to(self, _device: str):
+                return self
+
+            def __call__(self, text: str, ref_audio_path: str, ref_text: str):
+                return [0.2 * math.sin(2.0 * math.pi * 220.0 * (i / 24000.0)) for i in range(28800)]
+
+        fake_mods = _install_fake_ml_modules(_FakeIndicF5Model())
+        delattr(fake_mods["torch"], "inference_mode")
+        engine = IndicF5BengaliEngine(settings=Settings(voice_engine="indicf5", device="cpu"))
+
+        with patch.dict(sys.modules, fake_mods), patch("importlib.util.find_spec", return_value=object()):
+            with tempfile.TemporaryDirectory() as tmp:
+                ref_wav = Path(tmp) / "ref.wav"
+                out_wav = Path(tmp) / "out.wav"
+                _write_test_wav(ref_wav, duration_sec=2.5)
+
+                result_path = engine.synthesize_segment(
+                    EngineSynthesisInput(
+                        text="বাংলা বাক্য",
+                        language="bn",
+                        reference_wav_path=ref_wav,
+                        reference_text="বাংলা রেফারেন্স",
+                        output_wav_path=out_wav,
+                    )
+                )
+                self.assertTrue(result_path.exists())
+                self.assertEqual(fake_mods["torch"]._ctx_calls["no_grad"], 1)  # type: ignore[attr-defined]
+                self.assertEqual(engine.runtime_details()["device"]["active_inference_jobs"], 0)
+
+    def test_rejects_torch_without_inference_protection(self) -> None:
+        from app.config import Settings
+        from app.engines.base import EngineInferenceError, EngineSynthesisInput
+        from app.engines.indicf5_engine import IndicF5BengaliEngine
+
+        class _FakeIndicF5Model:
+            def to(self, _device: str):
+                return self
+
+            def __call__(self, text: str, ref_audio_path: str, ref_text: str):
+                raise AssertionError("Model must not be called without inference protection")
+
+        fake_mods = _install_fake_ml_modules(_FakeIndicF5Model())
+        delattr(fake_mods["torch"], "inference_mode")
+        delattr(fake_mods["torch"], "no_grad")
+        engine = IndicF5BengaliEngine(settings=Settings(voice_engine="indicf5", device="cpu"))
+
+        with patch.dict(sys.modules, fake_mods), patch("importlib.util.find_spec", return_value=object()):
+            with tempfile.TemporaryDirectory() as tmp:
+                ref_wav = Path(tmp) / "ref.wav"
+                out_wav = Path(tmp) / "out.wav"
+                _write_test_wav(ref_wav, duration_sec=2.5)
+
+                with self.assertRaises(EngineInferenceError):
+                    engine.synthesize_segment(
+                        EngineSynthesisInput(
+                            text="বাংলা বাক্য",
+                            language="bn",
+                            reference_wav_path=ref_wav,
+                            reference_text="বাংলা রেফারেন্স",
+                            output_wav_path=out_wav,
+                        )
+                    )
+                self.assertFalse(out_wav.exists())
+                self.assertEqual(engine.runtime_details()["device"]["active_inference_jobs"], 0)
 
     def test_inference_failure_raises_error_without_mock_fallback(self) -> None:
         from app.config import Settings

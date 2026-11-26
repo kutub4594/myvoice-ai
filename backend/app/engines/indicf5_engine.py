@@ -300,15 +300,22 @@ class IndicF5BengaliEngine(BaseVoiceCloningEngine):
 
             try:
                 import torch  # type: ignore
+            except ImportError as exc:
+                raise EngineNotReadyError(
+                    "PyTorch runtime is unavailable for IndicF5 inference."
+                ) from exc
 
-                ctx = torch.inference_mode()
-            except ImportError:
-                from contextlib import nullcontext
-
-                ctx = nullcontext()
+            infer_ctx = getattr(torch, "inference_mode", None)
+            if not callable(infer_ctx):
+                infer_ctx = getattr(torch, "no_grad", None)
+            if not callable(infer_ctx):
+                raise EngineInferenceError(
+                    "PyTorch runtime exposes neither torch.inference_mode() nor torch.no_grad(); "
+                    "refusing to run unprotected inference."
+                )
 
             try:
-                with ctx:
+                with infer_ctx():
                     audio = model(
                         request.text,
                         ref_audio_path=str(request.reference_wav_path),
