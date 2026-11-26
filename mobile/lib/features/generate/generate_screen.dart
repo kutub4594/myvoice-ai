@@ -35,12 +35,10 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   }
 
   Future<bool> _ensureUploadConsent(String backendUrl) async {
-    final config = ref.read(appStateProvider).backendConfig;
-    if (config.uploadConsentRemembered) return true;
-
-    var remember = false;
+    var acknowledged = false;
     final approved = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('Voice Upload Privacy Consent'),
@@ -50,22 +48,23 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
             children: [
               Text(
                 'MyVoice AI will send your selected voice sample and text to:\n$backendUrl\n\n'
-                'Only proceed if you own this voice (or have explicit permission) and trust '
-                'this backend endpoint.',
+                'Every cloud upload requires fresh explicit confirmation.',
               ),
               const SizedBox(height: 12),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
-                value: remember,
-                onChanged: (v) => setDialogState(() => remember = v ?? false),
-                title: const Text('Remember my consent for this device'),
+                value: acknowledged,
+                onChanged: (v) => setDialogState(() => acknowledged = v ?? false),
+                title: const Text(
+                  'I own this voice (or have explicit permission) and consent to this upload.',
+                ),
               ),
             ],
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
+              onPressed: acknowledged ? () => Navigator.pop(ctx, true) : null,
               child: const Text('I Consent & Generate'),
             ),
           ],
@@ -73,12 +72,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       ),
     );
 
-    if (approved == true && remember) {
-      await ref
-          .read(appStateProvider.notifier)
-          .saveBackendConfig(config.copyWith(uploadConsentRemembered: true));
-    }
-    return approved == true;
+    return approved == true && acknowledged;
   }
 
   Future<void> _generate(List<VoiceProfile> profiles) async {

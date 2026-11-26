@@ -5,7 +5,7 @@
 *.pem
 *.key
 
-# Python
+# Python & caches
 __pycache__/
 *.py[cod]
 *.pyo
@@ -16,13 +16,12 @@ env/
 .ruff_cache/
 backend/.env
 backend/tmp/
-backend/models/
 tmp/
 temp/
 *.tmp
 *.log
 
-# Private voice samples, datasets, databases & exported archives
+# Private voice recordings, datasets, generated audio & databases (MUST NEVER enter Git)
 *.wav
 *.mp3
 *.m4a
@@ -30,20 +29,59 @@ temp/
 *.flac
 *.aac
 *.opus
+*.wma
+*.amr
+*.3gp
+*.webm
+*.aiff
 *.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
 datasets/
+**/datasets/
 recordings/
+**/recordings/
+voice_samples/
+**/voice_samples/
+samples/
 myvoice_vault/
+generated/
+generated_audio/
+**/generated_audio/
+benchmark_outputs/
+training_data/
+training_jobs/
+speaker_profiles/
+exports/
+metadata.csv
 *.db
 *.sqlite
 *.sqlite3
 *.db-wal
 *.db-shm
 
-# AI model weights & checkpoints
+# Speaker embeddings, serialized features & AI model weights/checkpoints
+embeddings/
+**/embeddings/
+speaker_embeddings/
+**/speaker_embeddings/
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.h5
+*.hdf5
 /models/
 /backend/models/
+**/models/
 /checkpoints/
+**/checkpoints/
+weights/
+hf_cache/
+huggingface_cache/
 *.pt
 *.pth
 *.safetensors

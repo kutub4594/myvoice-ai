@@ -8,13 +8,15 @@ from app.engines.base import BaseVoiceCloningEngine
 from app.engines.chatterbox_engine import ChatterboxComparisonEngine
 from app.engines.cpu_fallback_engine import CpuFallbackVoiceCloningEngine
 from app.engines.f5_engine import F5DualVoiceCloningEngine
+from app.engines.indicf5_engine import IndicF5BengaliEngine
 from app.engines.mock_engine import MockVoiceCloningEngine
 
 _ENGINE_FACTORIES: dict[str, type[BaseVoiceCloningEngine]] = {
-    "mock": MockVoiceCloningEngine,
+    "indicf5": IndicF5BengaliEngine,
     "f5": F5DualVoiceCloningEngine,
     "chatterbox": ChatterboxComparisonEngine,
     "cpu_fallback": CpuFallbackVoiceCloningEngine,
+    "mock": MockVoiceCloningEngine,
 }
 
 
@@ -31,4 +33,4 @@ def get_engine(engine_id: str) -> BaseVoiceCloningEngine:
 
 def list_engines() -> list[BaseVoiceCloningEngine]:
     """Return all registered engines in priority order."""
-    return [get_engine(key) for key in ("f5", "chatterbox", "cpu_fallback", "mock")]
+    return [get_engine(key) for key in ("indicf5", "f5", "chatterbox", "cpu_fallback", "mock")]

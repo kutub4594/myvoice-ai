@@ -1,10 +1,12 @@
-"""Optional Comparison Engine Scaffold: Chatterbox (English) + Bangla Adaptation.
+"""Stage 2 Evaluation Placeholder: ResembleAI Chatterbox (English-only).
 
-Model verification notes:
-- ResembleAI/chatterbox: MIT License (code and weights). Supports English with explicit
-  exaggeration (0.25-2.0) and cfg_weight (0.0-1.0) controls; embeds PerTh watermark.
-- Banglabox/chatterbox-bangla-tts: MIT License community adaptation adding Bangladeshi
-  Bengali tokenizer and dual-loss fine-tuning. Requires direct listening tests before use.
+Audit findings:
+- ResembleAI/chatterbox is archived/retired by Resemble AI, but remains publicly accessible
+  on GitHub and Hugging Face under the permissive MIT License.
+- Official Chatterbox does NOT support Bengali (do not claim Bengali support for Chatterbox).
+- Pinned dependency stack: Python 3.10-3.13 (tested on 3.11), torch==2.6.0, torchaudio==2.6.0,
+  transformers, librosa, diffusers, resemble-perth, safetensors, omegaconf.
+- Isolated behind this modular adapter for Stage 2 English integration.
 """
 
 from __future__ import annotations
@@ -16,41 +18,39 @@ from app.schemas import EngineInfo, EngineStatus
 
 
 class ChatterboxComparisonEngine(BaseVoiceCloningEngine):
-    """Placeholder scaffold for Chatterbox expressive voice cloning comparison."""
+    """Modular placeholder for Stage 2 English voice cloning via ResembleAI/chatterbox."""
 
     @property
     def info(self) -> EngineInfo:
         return EngineInfo(
             id="chatterbox",
-            name="Chatterbox (English) + Bangla Adaptation",
+            name="Chatterbox (Stage 2 English Evaluation)",
             status=EngineStatus.PLACEHOLDER,
             is_mock=False,
-            supports_bengali=True,
+            supports_bengali=False,
             supports_english=True,
             supports_style_controls=True,
-            supports_trained_checkpoints=True,
+            supports_trained_checkpoints=False,
             requires_gpu=True,
-            models=["ResembleAI/chatterbox", "Banglabox/chatterbox-bangla-tts"],
+            models=["ResembleAI/chatterbox"],
             licenses=[
-                "ResembleAI/chatterbox: MIT (includes PerTh neural watermark)",
-                "Banglabox/chatterbox-bangla-tts: MIT",
+                "ResembleAI/chatterbox: MIT (archived/retired repo; embeds PerTh neural watermark)",
             ],
             notes=(
-                "Optional comparison scaffold with exaggeration/CFG style controls. "
-                "Model weights are not downloaded and bilingual quality has not been tested yet."
+                "Stage 2 English-only candidate (does NOT support Bengali). Pinned to torch==2.6.0; "
+                "not wired yet in Stage 1."
             ),
         )
 
     def transcribe_reference(self, reference_wav_path: Path, language_hint: str | None = None) -> str:
-        # Chatterbox does not require a reference transcript for zero-shot audio prompting.
         return ""
 
     def synthesize_segment(self, request: EngineSynthesisInput) -> Path:
-        model_name = (
-            "Banglabox/chatterbox-bangla-tts"
-            if request.language == "bn"
-            else "ResembleAI/chatterbox"
-        )
+        if request.language != "en":
+            raise EngineNotReadyError(
+                "Chatterbox does not support Bengali. Use VOICE_ENGINE=indicf5 for Bengali."
+            )
         raise EngineNotReadyError(
-            f"{model_name} inference is not implemented yet. Switch VOICE_ENGINE=mock for API testing."
+            "Stage 2 English Chatterbox inference is not implemented yet. "
+            "Use VOICE_ENGINE=indicf5 for Bengali or VOICE_ENGINE=mock for API testing."
         )

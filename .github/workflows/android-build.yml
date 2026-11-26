@@ -1,4 +1,4 @@
-name: CI - Backend Tests & Flutter Android Build
+name: CI - Privacy Guard, Backend Tests & Flutter Android Build
 
 on:
   push:
@@ -8,8 +8,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  privacy-audit:
+    name: Privacy Safeguard & Secrets Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify zero personal voice data, disguised binaries, embeddings, checkpoints, or secrets
+        run: python3 scripts/check_staged_privacy.py --tracked
+
   backend-tests:
     name: Python Backend Unit Tests
+    needs: privacy-audit
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,6 +52,7 @@ jobs:
 
   flutter-android-build:
     name: Flutter Tests & Android APK Build
+    needs: [privacy-audit, backend-tests]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -86,6 +103,24 @@ jobs:
 
       - name: Build Android Release APK
         run: flutter build apk --release
+
+      - name: Audit APK archive & output directory for voice/dataset/model leaks
+        run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          if find build/app/outputs/flutter-apk -type f \( -name '*.wav' -o -name '*.mp3' -o -name '*.m4a' -o -name '*.ogg' -o -name '*.flac' -o -name '*.zip' -o -name '*.pt' -o -name '*.safetensors' -o -name '*.ckpt' -o -name '*.npy' -o -name '*.db' \) | grep -q .; then
+            echo "Forbidden voice/dataset/model file in APK artifact directory" >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import sys, zipfile
+          bad_exts = ('.wav', '.mp3', '.m4a', '.ogg', '.flac', '.aac', '.opus', '.zip', '.pt', '.pth', '.ckpt', '.safetensors', '.onnx', '.npy', '.npz', '.pkl', '.db', '.sqlite', '.csv')
+          with zipfile.ZipFile('build/app/outputs/flutter-apk/app-release.apk') as zf:
+              bad = [n for n in zf.namelist() if n.lower().endswith(bad_exts) and n != 'assets/AssetManifest.bin']
+          if bad:
+              print('Forbidden files packaged inside APK:', bad, file=sys.stderr)
+              sys.exit(1)
+          print('APK archive content audit passed (0 voice/dataset/model entries).')
+          PY
 
       - name: Upload Release APK artifact
         uses: actions/upload-artifact@v4

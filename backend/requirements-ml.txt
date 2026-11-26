@@ -1,16 +1,26 @@
-# Optional ML inference dependencies (install on Python 3.10-3.12 GPU/CPU host when enabling real models).
-# Do NOT install automatically during scaffold phase; verify model licenses before production use.
+# Stage 1: Real Bengali Zero-Shot Voice Cloning (IndicF5)
+# Install inside a Python 3.10-3.12 GPU/CPU virtual environment (not on Android/Termux).
+# Note: ai4bharat/IndicF5 is MIT-licensed and gated on Hugging Face (set HF_TOKEN after accepting terms).
+torch>=2.3.0
+torchaudio>=2.3.0
+transformers>=4.44.0
+huggingface_hub>=0.24.0
+accelerate>=0.33.0
+safetensors>=0.4.3
+soundfile>=0.12.1
+numpy>=1.26.0
+scipy>=1.13.0
 
-# Primary Engine (IndicF5 + F5-TTS + Auto-transcription)
-# torch>=2.3.0
-# torchaudio>=2.3.0
-# f5-tts
-# transformers>=4.44.0
-# faster-whisper>=1.0.3
-# soundfile>=0.12.1
-# numpy>=1.26.0
+# Optional automatic reference transcription (MIT)
+faster-whisper>=1.0.3
 
-# CPU Fallback Engine (MMS-TTS Bengali + Piper English + OpenVoice v2)
-# piper-tts>=1.2.0
+# ---------------------------------------------------------------------------
+# Stage 2 (Separate Environment Recommended): English Chatterbox Evaluation
+# ResembleAI/chatterbox is archived/retired (MIT) and pins torch==2.6.0.
+# Do NOT install into the IndicF5 venv if versions conflict; isolate in its own venv.
+# torch==2.6.0
+# torchaudio==2.6.0
+# resemble-perth
 # librosa>=0.10.2
-# openvoice  # Install from myshell-ai/OpenVoice repository when integrating
+# diffusers
+# omegaconf

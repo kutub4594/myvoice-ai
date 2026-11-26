@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:myvoice_ai/core/constants/app_constants.dart';
@@ -18,8 +20,11 @@ class _DatasetStudioScreenState extends ConsumerState<DatasetStudioScreen> {
   int _promptIndex = 0;
   bool _isRecording = false;
   bool _isExporting = false;
+  bool _isUploading = false;
+  bool _isDeletingRemote = false;
   String? _pendingPath;
   String? _errorText;
+  String? _statusText;
 
   GuidedPrompt get _currentPrompt => GuidedPrompts.all[_promptIndex];
 
@@ -66,17 +71,157 @@ class _DatasetStudioScreenState extends ConsumerState<DatasetStudioScreen> {
     }
   }
 
+  Future<bool> _askExplicitTrainingConsent({
+    required String title,
+    required String destinationLabel,
+    required int clipCount,
+    required String actionLabel,
+  }) async {
+    var acknowledged = false;
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'You are about to transfer $clipCount personal voice recording(s) and '
+                'transcripts from app-private storage to:\n$destinationLabel\n\n'
+                'Training uploads NEVER occur silently and consent is asked every time.',
+              ),
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: acknowledged,
+                onChanged: (v) => setDialogState(() => acknowledged = v ?? false),
+                title: const Text(
+                  'I confirm this is my own voice (or I have explicit permission) and I consent to this upload.',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: acknowledged ? () => Navigator.pop(ctx, true) : null,
+              child: Text(actionLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+    return approved == true && acknowledged;
+  }
+
   Future<void> _exportDatasetZip(List<DatasetRecording> recordings) async {
+    final consented = await _askExplicitTrainingConsent(
+      title: 'Confirm Local Dataset Export',
+      destinationLabel: 'Android system share sheet (user-selected destination)',
+      clipCount: recordings.length,
+      actionLabel: 'Consent & Export ZIP',
+    );
+    if (!consented) return;
+
     setState(() {
       _isExporting = true;
       _errorText = null;
+      _statusText = null;
     });
     try {
-      await ref.read(datasetExportProvider).buildAndShareDatasetZip(recordings);
+      await ref
+          .read(datasetExportProvider)
+          .buildAndShareDatasetZip(recordings, consentConfirmed: true);
     } catch (e) {
       setState(() => _errorText = e.toString());
     } finally {
       if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _uploadDatasetToBackend(List<DatasetRecording> recordings) async {
+    final backendUrl = ref.read(appStateProvider).backendConfig.baseUrl;
+    final consented = await _askExplicitTrainingConsent(
+      title: 'Explicit Training Upload Consent',
+      destinationLabel: '$backendUrl (private external GPU storage, outside Git)',
+      clipCount: recordings.length,
+      actionLabel: 'I Consent & Upload',
+    );
+    if (!consented) return;
+
+    setState(() {
+      _isUploading = true;
+      _errorText = null;
+      _statusText = null;
+    });
+    String? tempZipPath;
+    try {
+      final zipResult = await ref.read(datasetExportProvider).buildDatasetZipFile(
+            recordings,
+            consentConfirmed: true,
+            forImmediateUpload: true,
+          );
+      tempZipPath = zipResult.zipPath;
+
+      final resp = await ref.read(appStateProvider.notifier).uploadTrainingDatasetZip(
+            zipPath: tempZipPath,
+            consentConfirmed: true,
+          );
+      setState(() {
+        _statusText =
+            'Uploaded ${resp['file_count'] ?? zipResult.clipCount} file(s) to private remote storage '
+            '(dataset_id: ${resp['dataset_id'] ?? 'created'}).';
+      });
+    } catch (e) {
+      setState(() => _errorText = e.toString());
+    } finally {
+      if (tempZipPath != null) {
+        final f = File(tempZipPath);
+        if (await f.exists()) await f.delete();
+      }
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
+  Future<void> _deleteRemoteTrainingData() async {
+    final backendUrl = ref.read(appStateProvider).backendConfig.baseUrl;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Remote Training Data?'),
+        content: Text(
+          'This permanently deletes all uploaded datasets, speaker embeddings, generated audio, '
+          'and checkpoints stored in private backend storage at:\n$backendUrl',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete Remote Data'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _isDeletingRemote = true;
+      _errorText = null;
+      _statusText = null;
+    });
+    try {
+      final resp = await ref.read(appStateProvider.notifier).deleteRemoteTrainingData();
+      setState(() {
+        _statusText =
+            'Remote private training storage cleared (${resp['deleted_items'] ?? 0} item(s) removed).';
+      });
+    } catch (e) {
+      setState(() => _errorText = e.toString());
+    } finally {
+      if (mounted) setState(() => _isDeletingRemote = false);
     }
   }
 
@@ -158,10 +303,48 @@ class _DatasetStudioScreenState extends ConsumerState<DatasetStudioScreen> {
                   LinearProgressIndicator(value: progress),
                   const SizedBox(height: 8),
                   Text(
-                    'All clips stay stored privately on your device until you export the ZIP for '
-                    'your Google Colab training notebook.',
+                    'All clips stay stored privately inside Android app-private storage. '
+                    'Any ZIP export or GPU backend upload requires your explicit consent every time.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: _isUploading || _isExporting || recordings.isEmpty
+                            ? null
+                            : () => _uploadDatasetToBackend(recordings),
+                        icon: _isUploading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cloud_upload_outlined),
+                        label: const Text('Upload to GPU Backend'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _isDeletingRemote ? null : _deleteRemoteTrainingData,
+                        icon: _isDeletingRemote
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cloud_off_outlined),
+                        label: const Text('Delete Remote Data'),
+                      ),
+                    ],
+                  ),
+                  if (_statusText != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _statusText!,
+                      style: TextStyle(color: Theme.of(context).colorScheme.primary),
+                    ),
+                  ],
                 ],
               ),
             ),

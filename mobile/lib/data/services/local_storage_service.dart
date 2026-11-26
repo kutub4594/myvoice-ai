@@ -23,6 +23,8 @@ class LocalStorageService {
     await Directory(p.join(_rootDir!.path, 'dataset')).create(recursive: true);
     await Directory(p.join(_rootDir!.path, 'generated')).create(recursive: true);
     await Directory(p.join(_rootDir!.path, 'exports')).create(recursive: true);
+    await Directory(p.join(_rootDir!.path, 'tmp_upload')).create(recursive: true);
+    await cleanupStaleExportZips(maxAge: const Duration(hours: 1));
 
     final dbPath = p.join(_rootDir!.path, 'myvoice.db');
     _db = await openDatabase(
@@ -104,8 +106,47 @@ class LocalStorageService {
 
   Future<String> createDatasetExportZipPath() async {
     await init();
+    // Retain recent share exports briefly so Android share targets can read asynchronously,
+    // while removing older stale archives cleanly.
+    await cleanupStaleExportZips(maxAge: const Duration(hours: 1));
     final ts = DateTime.now().millisecondsSinceEpoch;
     return p.join(_rootDir!.path, 'exports', 'myvoice_dataset_$ts.zip');
+  }
+
+  /// Creates an isolated temporary ZIP path strictly for synchronous HTTPS backend upload.
+  Future<String> createTemporaryUploadZipPath() async {
+    await init();
+    await _purgeDirectoryFiles(Directory(p.join(_rootDir!.path, 'tmp_upload')));
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return p.join(_rootDir!.path, 'tmp_upload', 'myvoice_upload_$ts.zip');
+  }
+
+  Future<void> cleanupStaleExportZips({Duration maxAge = const Duration(hours: 1)}) async {
+    if (_rootDir == null) return;
+    final exportsDir = Directory(p.join(_rootDir!.path, 'exports'));
+    if (!await exportsDir.exists()) return;
+    final cutoff = DateTime.now().subtract(maxAge);
+    await for (final entity in exportsDir.list()) {
+      if (entity is File) {
+        if (maxAge <= Duration.zero) {
+          await entity.delete();
+        } else {
+          final stat = await entity.stat();
+          if (stat.modified.isBefore(cutoff)) {
+            await entity.delete();
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _purgeDirectoryFiles(Directory dir) async {
+    if (!await dir.exists()) return;
+    await for (final entity in dir.list()) {
+      if (entity is File) {
+        await entity.delete();
+      }
+    }
   }
 
   Future<String> copyFileIntoVault(String sourcePath, String destinationPath) async {
@@ -181,13 +222,16 @@ class LocalStorageService {
 
   Future<BackendConfig> loadBackendConfig() async {
     await init();
+    // Purge any legacy persisted consent flag so every cloud upload requires fresh consent.
+    await _database.delete('app_settings', where: 'key = ?', whereArgs: ['upload_consent']);
     final rows = await _database.query('app_settings');
     final map = <String, String>{
       for (final row in rows) row['key'] as String: row['value'] as String,
     };
     return BackendConfig(
       baseUrl: map['backend_url'] ?? AppConstants.defaultBackendUrl,
-      uploadConsentRemembered: map['upload_consent'] == 'true',
+      apiToken: map['api_token'] ?? '',
+      allowLocalHttpDev: map['allow_local_http_dev'] == 'true',
       requestTimeoutSeconds: int.tryParse(map['timeout_seconds'] ?? '') ?? 90,
     );
   }
@@ -195,7 +239,8 @@ class LocalStorageService {
   Future<void> saveBackendConfig(BackendConfig config) async {
     await init();
     await _setSetting('backend_url', config.baseUrl.trim());
-    await _setSetting('upload_consent', config.uploadConsentRemembered.toString());
+    await _setSetting('api_token', config.apiToken.trim());
+    await _setSetting('allow_local_http_dev', config.allowLocalHttpDev.toString());
     await _setSetting('timeout_seconds', config.requestTimeoutSeconds.toString());
   }
 
@@ -204,8 +249,13 @@ class LocalStorageService {
     await _database.delete('voice_profiles');
     await _database.delete('dataset_recordings');
     await _database.delete('generated_history');
+    await _database.delete(
+      'app_settings',
+      where: 'key IN (?, ?)',
+      whereArgs: ['api_token', 'upload_consent'],
+    );
 
-    for (final folder in const ['profiles', 'dataset', 'generated', 'exports']) {
+    for (final folder in const ['profiles', 'dataset', 'generated', 'exports', 'tmp_upload']) {
       final dir = Directory(p.join(_rootDir!.path, folder));
       if (await dir.exists()) {
         await dir.delete(recursive: true);

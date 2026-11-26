@@ -39,10 +39,11 @@ class EngineContractTests(unittest.TestCase):
             self.assertTrue(result.read_bytes().startswith(b"RIFF"))
 
     def test_placeholder_engines_refuse_fake_synthesis(self) -> None:
-        for engine_id in ("f5", "chatterbox", "cpu_fallback"):
+        for engine_id in ("indicf5", "f5", "chatterbox", "cpu_fallback"):
             engine = get_engine(engine_id)
             self.assertFalse(engine.info.is_mock)
-            self.assertEqual(engine.info.status, EngineStatus.PLACEHOLDER)
+            if engine_id in {"chatterbox", "cpu_fallback"}:
+                self.assertEqual(engine.info.status, EngineStatus.PLACEHOLDER)
             with tempfile.TemporaryDirectory() as tmp:
                 with self.assertRaises(EngineNotReadyError):
                     engine.synthesize_segment(
@@ -53,9 +54,9 @@ class EngineContractTests(unittest.TestCase):
                         )
                     )
 
-    def test_registry_lists_all_four_engines(self) -> None:
+    def test_registry_lists_all_engines(self) -> None:
         ids = {e.info.id for e in list_engines()}
-        self.assertEqual(ids, {"f5", "chatterbox", "cpu_fallback", "mock"})
+        self.assertEqual(ids, {"indicf5", "f5", "chatterbox", "cpu_fallback", "mock"})
 
 
 if __name__ == "__main__":

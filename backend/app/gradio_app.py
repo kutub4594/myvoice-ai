@@ -2,20 +2,52 @@
 
 from __future__ import annotations
 
+import atexit
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 from app.config import get_settings
-from app.engines.base import EngineNotReadyError, EngineSynthesisInput
+
+_GRADIO_TEMP_PREFIX = "myvoice_out_"
+_GRADIO_OUTPUT_FILES: list[Path] = []
+
+
+def _cleanup_gradio_outputs(*, max_age_seconds: int = 300) -> None:
+    """Remove stale Gradio temporary WAV outputs so audio does not accumulate on disk."""
+    now = time.time()
+    kept: list[Path] = []
+    for path in list(_GRADIO_OUTPUT_FILES):
+        try:
+            if not path.exists():
+                continue
+            if max_age_seconds <= 0 or (now - path.stat().st_mtime) >= max_age_seconds:
+                path.unlink(missing_ok=True)
+            else:
+                kept.append(path)
+        except OSError:
+            pass
+    _GRADIO_OUTPUT_FILES[:] = kept
+
+
+atexit.register(_cleanup_gradio_outputs, max_age_seconds=0)
+from app.engines.base import (
+    EngineInferenceError,
+    EngineInputError,
+    EngineNotReadyError,
+    EngineSynthesisInput,
+)
 from app.engines.registry import get_engine
 from app.schemas import ProfileType, SpeakingStyle
 from app.services.audio_processor import (
     AudioProcessingError,
     normalize_reference_audio,
     stitch_wav_segments,
+    validate_output_wav,
+    validate_reference_wav,
 )
-from app.services.text_segmenter import segment_text
+from app.services.text_segmenter import segment_for_synthesis
 
 
 def build_gradio_blocks():
@@ -41,19 +73,26 @@ def build_gradio_blocks():
             raise gr.Error("Please enter Bengali, English, or mixed text.")
 
         engine = get_engine(settings.voice_engine)
-        segments = segment_text(
+        segments = segment_for_synthesis(
             target_text,
             mode=language_mode,
             base_pause_ms=settings.inter_segment_pause_ms,
+            max_chunk_chars=settings.max_chunk_chars,
         )
         if not segments:
             raise gr.Error("No speakable text found after normalization.")
 
         with tempfile.TemporaryDirectory(prefix="myvoice_gradio_") as tmp:
             work_dir = Path(tmp)
-            norm_ref = normalize_reference_audio(Path(reference_audio_path), work_dir / "ref.wav")
             segment_outputs: list[tuple[Path, int]] = []
             try:
+                norm_ref = normalize_reference_audio(Path(reference_audio_path), work_dir / "ref.wav")
+                if not engine.info.is_mock:
+                    validate_reference_wav(
+                        norm_ref,
+                        min_duration_sec=settings.min_reference_duration_sec,
+                        max_duration_sec=settings.max_reference_duration_sec,
+                    )
                 for seg in segments:
                     out_path = work_dir / f"seg_{seg.index}.wav"
                     engine.synthesize_segment(
@@ -74,23 +113,30 @@ def build_gradio_blocks():
                     work_dir / "final.wav",
                     work_dir=work_dir,
                     crossfade_ms=settings.crossfade_ms,
+                    normalize_loudness=not engine.info.is_mock,
                 )
-            except (EngineNotReadyError, AudioProcessingError) as exc:
+                if not engine.info.is_mock:
+                    validate_output_wav(stitched)
+            except (EngineNotReadyError, EngineInputError, EngineInferenceError, AudioProcessingError) as exc:
                 raise gr.Error(str(exc)) from exc
 
-            # Gradio reads the returned file path after the handler returns, so write to a named temp file.
-            persistent_out = Path(tempfile.mkstemp(suffix=".wav", prefix="myvoice_out_")[1])
+            # Gradio reads the returned file path after the handler returns; track for bounded TTL cleanup.
+            _cleanup_gradio_outputs(max_age_seconds=300)
+            persistent_out = Path(tempfile.mkstemp(suffix=".wav", prefix=_GRADIO_TEMP_PREFIX)[1])
             shutil.copyfile(stitched, persistent_out)
+            _GRADIO_OUTPUT_FILES.append(persistent_out)
             return str(persistent_out), f"Engine: {engine.info.name} (segments: {len(segments)})"
 
     with gr.Blocks(title="MyVoice AI - Personal Voice Cloning") as demo:
         gr.Markdown(
             "# MyVoice AI\n"
-            f"Active Engine: **{settings.voice_engine}** (scaffold phase — no large weights loaded)"
+            f"Active Engine: **{settings.voice_engine}** (Stage 1 Bengali IndicF5 + modular adapters)"
         )
         with gr.Row():
             ref_audio = gr.Audio(sources=["microphone", "upload"], type="filepath", label="Reference Voice")
-            ref_text = gr.Textbox(label="Reference Transcript (optional for F5 auto-transcribe)")
+            ref_text = gr.Textbox(
+                label="Reference Transcript (required for IndicF5 unless auto-transcribe is enabled)"
+            )
         text_in = gr.Textbox(lines=4, label="Text (Bengali, English, or Mixed)")
         with gr.Row():
             lang_dd = gr.Dropdown(["auto", "bn", "en", "mixed"], value="auto", label="Language Mode")

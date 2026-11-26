@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -65,6 +65,32 @@ class EngineInfo(BaseModel):
     notes: str
 
 
+class DeviceCapabilityInfo(BaseModel):
+    """Hardware and runtime inference diagnostics (never includes secrets)."""
+
+    selected_device: str
+    torch_installed: bool
+    transformers_installed: bool
+    cuda_available: bool
+    mps_available: bool = False
+    gpu_name: str | None = None
+    gpu_vram_mb: int | None = None
+    model_loaded: bool = False
+    active_inference_jobs: int = 0
+    max_concurrent_jobs: int = 1
+
+
+class AudioQualityMetrics(BaseModel):
+    """Objective audio validation metrics for WAV clips."""
+
+    duration_sec: float
+    sample_rate: int
+    channels: int
+    rms_dbfs: float
+    peak_dbfs: float
+    clipping_ratio: float
+
+
 class TranscribeResponse(BaseModel):
     """Transcript returned for an uploaded voice sample."""
 
@@ -82,6 +108,16 @@ class HealthResponse(BaseModel):
     active_engine: EngineInfo
     ffmpeg_available: bool
     privacy_mode: str = "ephemeral_stateless"
+    runtime: DeviceCapabilityInfo | None = None
+
+
+class DiagnosticsResponse(BaseModel):
+    """Detailed non-secret system and engine diagnostics."""
+
+    health: HealthResponse
+    runtime_details: dict[str, Any] = Field(default_factory=dict)
+    implemented_stages: list[str] = Field(default_factory=list)
+    experimental_stages: list[str] = Field(default_factory=list)
 
 
 class SegmentPreview(BaseModel):
@@ -98,3 +134,36 @@ class ErrorDetail(BaseModel):
 
     code: str
     message: str
+
+
+class RemoteTrainingUploadResponse(BaseModel):
+    """Response returned after user-consented upload of training dataset to external private storage."""
+
+    owner_id: str
+    dataset_id: str
+    uploaded_at_utc: str
+    file_count: int
+    total_bytes: int
+    outside_git_repo: bool
+    privacy_notice: str = (
+        "Stored strictly in private owner-isolated external backend storage outside the Git repository."
+    )
+
+
+class RemoteTrainingSummaryResponse(BaseModel):
+    """Summary of remote training datasets, embeddings, checkpoints, and generated audio."""
+
+    owner_id: str
+    storage_scope: str
+    outside_git_repo: bool
+    datasets: list[dict[str, Any]]
+    categories: dict[str, dict[str, int]]
+
+
+class RemoteTrainingDeleteResponse(BaseModel):
+    """Result of user-initiated deletion of remote training data."""
+
+    owner_id: str
+    storage_scope: str = "private_external_owner_isolated"
+    deleted_items: int
+    freed_bytes: int

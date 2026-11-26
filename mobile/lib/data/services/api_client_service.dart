@@ -23,15 +23,24 @@ class SynthesisResultBytes {
 }
 
 class ApiClientService {
-  Dio _buildClient(BackendConfig config) {
-    final normalizedUrl = config.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    final uri = Uri.tryParse(normalizedUrl);
-    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-      throw const AppException('Invalid backend URL. Enter a valid http:// or https:// address.');
+  Dio _buildClient(BackendConfig config, {bool requireAuth = false}) {
+    final uri = config.validateAndResolveUri();
+    final token = config.apiToken.trim();
+    if (requireAuth && token.isEmpty) {
+      throw const AppException(
+        'Backend API token is required. Enter your API token in Backend & Privacy Settings.',
+      );
     }
+
+    final headers = <String, dynamic>{};
+    if (token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+
     return Dio(
       BaseOptions(
-        baseUrl: normalizedUrl,
+        baseUrl: uri.toString(),
+        headers: headers,
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: Duration(seconds: config.requestTimeoutSeconds),
         sendTimeout: const Duration(seconds: 45),
@@ -105,7 +114,7 @@ class ApiClientService {
         );
       }
 
-      final resp = await _buildClient(config).post<List<int>>(
+      final resp = await _buildClient(config, requireAuth: true).post<List<int>>(
         '/api/v1/synthesize',
         data: FormData.fromMap(formMap),
         options: Options(responseType: ResponseType.bytes),
@@ -126,6 +135,58 @@ class ApiClientService {
       throw AppException(_formatDioError(e));
     } on FileSystemException catch (e) {
       throw AppException('Failed to read local voice sample: ${e.message}');
+    }
+  }
+
+  /// Uploads a personal training dataset ZIP to the selected GPU backend.
+  /// Always enforces per-upload explicit consent (never cached/remembered).
+  Future<Map<String, dynamic>> uploadTrainingDataset({
+    required BackendConfig config,
+    required String zipPath,
+    required bool consentConfirmed,
+    String? datasetId,
+  }) async {
+    if (!consentConfirmed) {
+      throw const AppException(
+        'Explicit user consent is mandatory every time a training dataset upload is initiated.',
+      );
+    }
+
+    final zipFile = File(zipPath);
+    if (!await zipFile.exists()) {
+      throw const AppException('Dataset ZIP archive does not exist on device.');
+    }
+
+    try {
+      final formMap = <String, dynamic>{
+        'consent_confirmed': 'true',
+        'dataset_zip': await MultipartFile.fromFile(
+          zipPath,
+          filename: p.basename(zipPath),
+        ),
+      };
+      if (datasetId != null && datasetId.trim().isNotEmpty) {
+        formMap['dataset_id'] = datasetId.trim();
+      }
+
+      final resp = await _buildClient(config, requireAuth: true).post<Map<String, dynamic>>(
+        '/api/v1/training/upload',
+        data: FormData.fromMap(formMap),
+      );
+      return resp.data ?? const <String, dynamic>{};
+    } on DioException catch (e) {
+      throw AppException(_formatDioError(e));
+    }
+  }
+
+  /// Deletes all remote training datasets, embeddings, checkpoints, and generated audio.
+  Future<Map<String, dynamic>> deleteRemoteTrainingData(BackendConfig config) async {
+    try {
+      final resp = await _buildClient(config, requireAuth: true)
+          .delete<Map<String, dynamic>>('/api/v1/training/data');
+      return resp.data ?? const <String, dynamic>{};
+    } on DioException catch (e) {
+      throw AppException(_formatDioError(e));
     }
   }
 

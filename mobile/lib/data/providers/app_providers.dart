@@ -202,7 +202,26 @@ class AppStateNotifier extends StateNotifier<AppState> {
       profiles: const [],
       datasetRecordings: const [],
       history: const [],
+      backendConfig: state.backendConfig.copyWith(apiToken: ''),
+      clearHealth: true,
     );
+  }
+
+  Future<Map<String, dynamic>> uploadTrainingDatasetZip({
+    required String zipPath,
+    required bool consentConfirmed,
+    String? datasetId,
+  }) async {
+    return _api.uploadTrainingDataset(
+      config: state.backendConfig,
+      zipPath: zipPath,
+      consentConfirmed: consentConfirmed,
+      datasetId: datasetId,
+    );
+  }
+
+  Future<Map<String, dynamic>> deleteRemoteTrainingData() async {
+    return _api.deleteRemoteTrainingData(state.backendConfig);
   }
 }
 

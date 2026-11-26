@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myvoice_ai/core/errors/app_exception.dart';
 import 'package:myvoice_ai/data/models/backend_config.dart';
 import 'package:myvoice_ai/data/models/backend_health.dart';
 import 'package:myvoice_ai/data/models/dataset_item.dart';
@@ -76,5 +77,19 @@ void main() {
     const tunnel = BackendConfig(baseUrl: 'https://demo.trycloudflare.com');
     expect(local.isPlainHttp, isTrue);
     expect(tunnel.isPlainHttp, isFalse);
+  });
+
+  test('BackendConfig enforces HTTPS for remote hosts and restricts HTTP to local dev opt-in', () {
+    const remoteHttps = BackendConfig(baseUrl: 'https://voice.example.com');
+    expect(remoteHttps.validateAndResolveUri().scheme, 'https');
+
+    const remoteHttp = BackendConfig(baseUrl: 'http://voice.example.com', allowLocalHttpDev: true);
+    expect(() => remoteHttp.validateAndResolveUri(), throwsA(isA<AppException>()));
+
+    const localHttpDisabled = BackendConfig(baseUrl: 'http://10.0.2.2:8000', allowLocalHttpDev: false);
+    expect(() => localHttpDisabled.validateAndResolveUri(), throwsA(isA<AppException>()));
+
+    const localHttpEnabled = BackendConfig(baseUrl: 'http://10.0.2.2:8000', allowLocalHttpDev: true);
+    expect(localHttpEnabled.validateAndResolveUri().host, '10.0.2.2');
   });
 }

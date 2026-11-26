@@ -1,51 +1,62 @@
 # MyVoice AI
 
-A free, open-source **AI Voice Cloning Android application** (Flutter) paired with a modular **Python FastAPI + optional Gradio** backend supporting **Bengali**, **English**, and **mixed Bengali–English** text-to-speech.
+A free, open-source **AI Voice Cloning Android application** (Flutter) paired with a modular **Python FastAPI + optional Gradio** backend supporting **Bengali** (Stage 1: `IndicF5`), **English** (Stage 2 evaluation: `Chatterbox`), and **mixed Bengali–English** script routing.
 
 > [!IMPORTANT]
-> **Current Status: Initial Scaffolding Only**
-> This repository currently contains the project structure, UI screens, local privacy/profile vault, API contracts, script-based text segmenter, audio stitching utilities, and engine placeholders (`mock` engine works out-of-the-box for integration testing; `f5` and `cpu_fallback` engines are scaffolded interfaces awaiting model weight integration and hardware testing). No multi-gigabyte ML weights are downloaded yet, and real voice cloning inference has **not** been tested yet.
+> **Implementation Status (Stage 1 Bengali Engine Integrated; Live GPU Listening Benchmark Pending)**
+> - **Implemented & Contract-Preserved**:
+>   - Flutter Android app (`mobile/`): local private voice vault, SQLite metadata, explicit upload consent gate, script-aware preview, user-controlled deletion, configurable external GPU backend URL.
+>   - FastAPI backend (`backend/`): `/health` with hardware capability diagnostics, `/api/v1/diagnostics` (non-secret), `/api/v1/engines`, `/api/v1/segment-preview`, `/api/v1/transcribe`, `/api/v1/synthesize`, and optional `/gradio`.
+>   - **Stage 1 Bengali Zero-Shot Adapter (`indicf5`)**: real `ai4bharat/IndicF5` integration requiring clean reference audio (1.5–30s) + accurate Bengali transcript (or optional `faster-whisper` auto-transcribe), CUDA/MPS/CPU device detection, single-GPU concurrency semaphore, strict error reporting (never silently falls back to mock audio), reference/output WAV quality validation, and long-text clause chunking + FFmpeg loudness normalization/crossfade stitching.
+> - **Experimental / Not Yet Benchmarked**:
+>   - Live `IndicF5` audio quality and speaker similarity require execution on an external GPU host with Hugging Face `ai4bharat/IndicF5` gated access (`backend/scripts/benchmark_bengali.py`). Do **not** assume ElevenLabs-level quality without listening tests.
+>   - **Stage 2 English (`chatterbox`)** and **`cpu_fallback`**: modular adapters remain disabled until Stage 2 dependency isolation and audio verification.
+>   - **Tier 2 Personal Fine-Tuning (`training/colab_finetune.ipynb`)**: dataset validation and resumable training-job separation scaffold; full fine-tuning training loop pending Stage 2.
 
 ---
 
 ## Architecture Overview
 
 ```text
-MyVoice AI (Flutter Android, Material 3, minSdk 24 / Android 7.0+)
+MyVoice AI (Flutter Android, Material 3, minSdk 24 / Android 7.0+, targetSdk 34)
   ├── Private on-device voice sample storage + SQLite metadata
   ├── Explicit user consent prompt before uploading any voice clip
+  ├── User-controlled deletion (individual clips, history, full wipe)
   ├── Script-aware Bengali / English / Mixed text preview
-  └── Configurable backend URL (Local PC LAN / Colab Tunnel / HF Space)
+  └── Configurable external GPU backend URL (Self-hosted GPU / Colab Tunnel / LAN)
             │
-            ▼ HTTPS (Stateless multipart request; server purges temp files)
-Python FastAPI Backend (+ optional Gradio mount for HF Spaces)
-  ├── /health & /api/v1/engines
-  ├── /api/v1/synthesize  (script segmentation -> engine -> FFmpeg stitch -> WAV/MP3)
+            ▼ HTTPS (Stateless multipart request; server purges temp files immediately)
+Python FastAPI Backend (+ optional Gradio mount)
+  ├── GET  /health               (active engine + GPU/CPU hardware diagnostics)
+  ├── GET  /api/v1/diagnostics   (detailed runtime diagnostics; never exposes secrets)
+  ├── GET  /api/v1/engines
+  ├── GET  /api/v1/segment-preview
+  ├── POST /api/v1/transcribe
+  ├── POST /api/v1/synthesize    (long-text chunking -> engine -> loudness norm & crossfade -> WAV/MP3)
   └── Engine Registry:
-        ├── f5           -> IndicF5 (Bengali) + F5-TTS (English) [Scaffolded]
-        ├── chatterbox   -> Chatterbox + Bangla adaptation [Optional Comparison Scaffold]
-        ├── cpu_fallback -> MMS-TTS (Bengali) + Piper (English) + OpenVoice v2 [Scaffolded]
-        └── mock         -> Synthetic WAV generator for offline API/UI testing
+        ├── indicf5      -> AI4Bharat IndicF5 Bengali zero-shot adapter [Stage 1 Implemented]
+        ├── f5           -> Dual router: IndicF5 (bn) + F5-TTS gate (en; CC-BY-NC-4.0 notice)
+        ├── chatterbox   -> ResembleAI Chatterbox English-only evaluation [Stage 2 Placeholder]
+        ├── cpu_fallback -> MMS-TTS (bn) + Piper (en) + OpenVoice v2 [Placeholder]
+        └── mock         -> Deterministic WAV generator for offline API/UI tests
 ```
 
-### Two Personal Voice Cloning Workflows
-1. **Tier 1 — Instant Voice Profile (Zero-Shot)**: Record or upload 1–5 clean style-tagged clips (*Neutral*, *Conversational*, *Expressive*, *Calm*) for immediate zero-shot conditioning without updating model weights.
-2. **Tier 2 — Personal Dataset Studio + Colab Fine-Tuning**: Use the guided Bengali & English prompt studio in the app to collect 15–60 minutes of clean transcribed utterances, export `dataset.zip` (`wavs/` + `metadata.csv`), and run `training/colab_finetune.ipynb` on a free Google Colab T4 GPU to train a personal checkpoint.
+### Two Distinct Voice Cloning Workflows
+1. **Tier 1 — Instant Zero-Shot Cloning**: Uses 1 clean 3–15s voice reference clip **and its accurate transcript** at synthesis time without updating any model weights. Uploading a short clip never claims to "train" a personal model.
+2. **Tier 2 — Personal Dataset Studio + Fine-Tuning**: Keeps **Speaker Profiles** separate from **Training Jobs** (`training/colab_finetune.ipynb`), validates `dataset.zip` (`wavs/` + `metadata.csv`), and tracks resumable Google Drive checkpoints (`job_state.json`).
 
 ---
 
-## Verified Model Licenses & Language Support
+## Verified Model Licenses, Evaluation Notes & Language Support
 
-Before integrating or distributing builds with model weights, note the verified licenses and constraints:
-
-| Component | Target Role | Verified Language Support | License & Access Notes |
+| Component | Role & Status | Verified Language Support | License & Access Notes |
 | :--- | :--- | :--- | :--- |
-| **IndicF5** (`ai4bharat/IndicF5`) | Bengali voice cloning | 11 Indic languages including **Bengali** (no native English) | **MIT License**; **gated Hugging Face repo** (requires free HF account & accepting model terms) |
-| **F5-TTS** (`SWivid/F5-TTS`) | English voice cloning | **English**, Chinese | Code: **MIT**; Pre-trained weights: **CC-BY-NC-4.0** (**Non-Commercial**) |
-| **Chatterbox** (`ResembleAI/chatterbox` + `Banglabox/chatterbox-bangla-tts`) | Optional expressive comparison | Official: English (23 langs omit Bangla); Community `Banglabox`: Bengali | **MIT License** (official weights embed Resemble's `PerTh` watermark; Bangla adaptation requires listening tests) |
-| **MMS-TTS Bengali** (`facebook/mms-tts-ben`) | CPU fallback Bengali TTS | **Bengali** (`ben`) | **CC-BY-NC-4.0** (**Non-Commercial**) |
-| **Piper** (`rhasspy/piper`) | CPU fallback English TTS | **English** (`en_US`, `en_GB`, etc.) | Code: **MIT** (check individual voice card licenses; `OHF-Voice/piper1-gpl` fork is GPL) |
-| **OpenVoice v2** (`myshell-ai/OpenVoice`) | CPU fallback tone-color conversion | ToneColorConverter is acoustic/language-agnostic (base MeloTTS is EN/ES/FR/ZH/JP/KR) | **MIT License** (code & weights). Cross-lingual conversion on Bengali MMS-TTS requires empirical testing |
+| **IndicF5** (`ai4bharat/IndicF5`) | **Stage 1 Bengali** (implemented adapter) | 11 Indic languages including **Bengali** (no native English) | **MIT License**; **gated HF repo** (requires accepting terms + `HF_TOKEN` env var) |
+| **Chatterbox** (`ResembleAI/chatterbox`) | **Stage 2 English** (evaluated placeholder) | **English** (upstream multilingual omits Bengali — never claim Bengali for Chatterbox) | **MIT License**; upstream GitHub repo is **archived/retired** (weights embed `PerTh` watermark; requires isolated `torch==2.6.0` env) |
+| **F5-TTS** (`SWivid/F5-TTS`) | Optional future dual engine | **English**, Chinese | Code: **MIT**; pre-trained weights: **`CC-BY-NC-4.0` (Non-Commercial)** — do not deploy commercially without permission |
+| **MMS-TTS Bengali** (`facebook/mms-tts-ben`) | Future CPU fallback | **Bengali** (`ben`) | **CC-BY-NC-4.0** (**Non-Commercial**) |
+| **Piper** (`rhasspy/piper`) | Future CPU fallback | **English** | **MIT** (`OHF-Voice/piper1-gpl` fork is GPL) |
+| **OpenVoice v2** (`myshell-ai/OpenVoice`) | Future CPU tone converter | Base English; cross-lingual needs testing | **MIT License** |
 
 ---
 
@@ -57,26 +68,33 @@ Before integrating or distributing builds with model weights, note the verified 
 ├── backend/
 │   ├── .env.example
 │   ├── requirements.txt
+│   ├── requirements-ml.txt               # Stage 1 IndicF5 GPU/CPU dependencies
 │   ├── app/
-│   │   ├── main.py                       # FastAPI entrypoint + optional Gradio mount
-│   │   ├── config.py                     # Env-based settings (no secrets hardcoded)
-│   │   ├── schemas.py                    # Pydantic API models
+│   │   ├── main.py                       # FastAPI entrypoint + diagnostics + optional Gradio mount
+│   │   ├── config.py                     # Env-based settings (HF_TOKEN read from env only)
+│   │   ├── schemas.py                    # Pydantic API models & hardware/audio diagnostics
 │   │   ├── engines/
-│   │   │   ├── base.py                   # Abstract VoiceCloningEngine interface
-│   │   │   ├── f5_engine.py              # IndicF5 + F5-TTS placeholder
-│   │   │   ├── chatterbox_engine.py      # Chatterbox comparison placeholder
+│   │   │   ├── base.py                   # Abstract VoiceCloningEngine & typed errors
+│   │   │   ├── indicf5_engine.py         # Real AI4Bharat IndicF5 Bengali zero-shot adapter
+│   │   │   ├── f5_engine.py              # Dual router: IndicF5 (bn) + F5-TTS gate (en)
+│   │   │   ├── chatterbox_engine.py      # Chatterbox English-only evaluation placeholder
 │   │   │   ├── cpu_fallback_engine.py    # MMS-TTS + Piper + OpenVoice v2 placeholder
 │   │   │   ├── mock_engine.py            # Offline deterministic test engine
 │   │   │   └── registry.py               # Engine selector
 │   │   ├── services/
-│   │   │   ├── text_segmenter.py         # Bengali / English / Mixed Unicode segmenter
-│   │   │   └── audio_processor.py        # FFmpeg normalization, stitching & WAV/MP3 export
+│   │   │   ├── text_segmenter.py         # Bengali / English segmenter + long-text chunking
+│   │   │   └── audio_processor.py        # FFmpeg norm, quality checks, loudness & crossfade stitch
 │   │   └── gradio_app.py                 # Optional Gradio UI for Hugging Face Spaces
+│   ├── scripts/
+│   │   └── benchmark_bengali.py          # GPU benchmark & WAV output verification script
 │   └── tests/
 │       ├── test_text_segmenter.py
+│       ├── test_long_text_chunking.py
+│       ├── test_engines_contract.py
+│       ├── test_indicf5_engine.py
 │       └── test_api_scaffold.py
 ├── training/
-│   └── colab_finetune.ipynb              # Tier 2 Google Colab T4 fine-tuning scaffold
+│   └── colab_finetune.ipynb              # Tier 1 GPU backend + Tier 2 resumable training scaffold
 └── mobile/
     ├── pubspec.yaml
     ├── analysis_options.yaml
@@ -105,11 +123,25 @@ cp .env.example .env
 
 # Run API server with the mock test engine (no GPU / weights required)
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# OR on a GPU/ML host for real Stage 1 Bengali IndicF5 cloning (do NOT install on Android):
+# pip install -r requirements.txt -r requirements-ml.txt
+# export HF_TOKEN=hf_your_read_token VOICE_ENGINE=indicf5 DEVICE=auto
+# uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Verify health endpoint:
+Verify health & diagnostics endpoints:
 ```bash
 curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/diagnostics
+```
+
+Run Stage 1 Bengali benchmark on a GPU host:
+```bash
+python scripts/benchmark_bengali.py \
+  --ref-audio /path/to/clean_ref.wav \
+  --ref-text "আমি প্রতিদিন সকালে নিয়মিত বাংলা খবর পড়ি।" \
+  --out-dir ./benchmark_outputs
 ```
 
 Run backend unit tests:
@@ -130,16 +162,21 @@ flutter build apk --release
 ### 3. Automated CI Builds (GitHub Actions)
 
 Push to `main` or open a Pull Request—`.github/workflows/android-build.yml` automatically:
-1. Runs Python backend unit tests.
-2. Runs `flutter analyze` and `flutter test`.
-3. Builds a release Android APK (unsigned debug/release artifact) and uploads it as a GitHub Actions artifact.
+1. Runs `privacy-audit` (`scripts/check_staged_privacy.py --tracked`) as a mandatory dependency.
+2. Runs Python backend unit tests (`needs: privacy-audit`).
+3. Runs `flutter analyze`, `flutter test`, builds the Android APK (`needs: [privacy-audit, backend-tests]`), verifies zero voice/dataset/model entries inside `app-release.apk`, and uploads only the APK artifact.
 
 ---
 
-## Privacy & Security Principles
+## Privacy & Data Ownership Guarantees
 
-* Voice samples are stored **only inside the app's private directory** on the user's phone.
-* The app requires **explicit user consent** before uploading a voice sample to any configured backend URL.
-* Users can **delete individual voice profiles, audio history, or all local data** at any time.
-* The backend processes uploaded reference clips inside ephemeral temporary directories and deletes them immediately after synthesis.
-* No paid APIs, analytics trackers, or hardcoded secrets are included.
+* **Zero Voice Data in Git**: `.gitignore`, [`.githooks/pre-commit`](.githooks/pre-commit), [`scripts/check_staged_privacy.py`](scripts/check_staged_privacy.py) (path rules plus full-file streaming magic-byte & secret inspection), and CI checks block commits/builds containing audio files, disguised binaries, datasets, embeddings, SQLite voice DBs, checkpoints, or secrets. Enable hooks locally with:
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+* **Authenticated & Owner-Isolated Backend**: Sensitive backend endpoints require Bearer/API-key authentication failing closed (`503`/`401`) if unconfigured. Multi-user deployments **must** set distinct per-user credentials via `MYVOICE_OWNER_TOKENS` (`alice:tokA,bob:tokB`) to isolate each user's remote datasets, embeddings, checkpoints, and outputs under separate `owners/<owner_id>` directories; a single shared `MYVOICE_API_TOKEN` intentionally shares one single-owner namespace across all holders of that token. Optional Gradio UI (`/gradio`) remains disabled unless authentication is configured and enforces credentials on login.
+* **HTTPS Enforced & Trusted-Proxy Hardening**: Both Android (`network_security_config.xml` + `BackendConfig`) and backend (`enforce_https_transport`) enforce `https://` for remote connections, trusting `X-Forwarded-Proto` only from `TRUSTED_PROXY_IPS` (`127.0.0.1,::1` default) and permitting `http://` only for explicit local/emulator dev (`localhost`, `127.0.0.1`, `::1`, `10.0.2.2`) when opted in.
+* **Android App-Private Storage by Default**: Voice profiles, dataset recordings, and generated outputs stay inside Android `getApplicationDocumentsDirectory()/myvoice_vault` with `android:allowBackup="false"`.
+* **Fresh Explicit Consent on Every Cloud Upload**: Both zero-shot voice synthesis and training dataset exports/uploads require fresh per-upload consent every time (persistent consent caching is disabled/removed).
+* **Separate Private Remote Storage & ZIP Bomb Protection**: Datasets, embeddings, and checkpoints stay outside Git (`PRIVATE_TRAINING_STORAGE_DIR`) with symlink, traversal, extension, compression-ratio, entry-count, and streamed decompression byte limits.
+* **User-Controlled Local & Remote Deletion + Clean Temp Cleanup**: Users can delete local voice data or purge their remote training data (`DELETE /api/v1/training/data`), and temporary processing files are cleaned automatically.

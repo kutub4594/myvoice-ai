@@ -1,57 +1,71 @@
-"""Primary Experimental Engine Scaffold: IndicF5 (Bengali) + F5-TTS (English).
+"""Dual F5 Engine: Delegates Bengali to IndicF5; English F5-TTS remains gated.
 
-Model verification notes:
-- IndicF5 (ai4bharat/IndicF5): MIT License, gated Hugging Face repo (requires free HF token),
-  supports 11 Indic languages including Bengali (no native English).
-- F5-TTS (SWivid/F5-TTS): Code MIT, pre-trained weights CC-BY-NC-4.0 (Non-Commercial).
-- Reference transcription helper: faster-whisper (MIT).
-
-Supports both Tier 1 (Zero-Shot multi-reference clips) and Tier 2 (personal fine-tuned
-checkpoints trained via Colab). Inference is intentionally NOT wired during scaffolding.
+License & deployment note:
+- ai4bharat/IndicF5 (Bengali): MIT License (gated Hugging Face repo). Delegated to
+  IndicF5BengaliEngine for Stage 1 real Bengali cloning.
+- SWivid/F5-TTS (English): Code MIT, pre-trained weights CC-BY-NC-4.0 (Non-Commercial).
+  Do NOT deploy pre-trained F5-TTS weights in a public production service without
+  appropriate permission. Stage 2 evaluates MIT-licensed Chatterbox for English.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+from app.config import Settings, get_settings
 from app.engines.base import BaseVoiceCloningEngine, EngineNotReadyError, EngineSynthesisInput
+from app.engines.indicf5_engine import IndicF5BengaliEngine
 from app.schemas import EngineInfo, EngineStatus
 
 
 class F5DualVoiceCloningEngine(BaseVoiceCloningEngine):
-    """Placeholder scaffold for IndicF5 (Bengali) + F5-TTS (English)."""
+    """Routes Bengali synthesis to IndicF5 while keeping non-commercial F5-TTS English gated."""
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
+        self._bengali_engine = IndicF5BengaliEngine(settings=self._settings)
 
     @property
     def info(self) -> EngineInfo:
+        bn_info = self._bengali_engine.info
         return EngineInfo(
             id="f5",
-            name="IndicF5 (Bengali) + F5-TTS (English)",
-            status=EngineStatus.PLACEHOLDER,
+            name="IndicF5 (Bengali) + F5-TTS (English Pending)",
+            status=EngineStatus.PLACEHOLDER if bn_info.status != EngineStatus.READY else EngineStatus.READY,
             is_mock=False,
             supports_bengali=True,
-            supports_english=True,
+            supports_english=False,
             supports_style_controls=False,
-            supports_trained_checkpoints=True,
+            supports_trained_checkpoints=False,
             requires_gpu=True,
-            models=["ai4bharat/IndicF5", "SWivid/F5-TTS", "faster-whisper"],
+            models=["ai4bharat/IndicF5", "SWivid/F5-TTS (not deployed)"],
             licenses=[
                 "ai4bharat/IndicF5: MIT (gated HF repo)",
-                "SWivid/F5-TTS: Code MIT / Weights CC-BY-NC-4.0",
-                "faster-whisper: MIT",
+                "SWivid/F5-TTS: Code MIT / Weights CC-BY-NC-4.0 (Non-Commercial)",
             ],
             notes=(
-                "Primary experimental scaffold. Supports zero-shot reference conditioning and "
-                "fine-tuned checkpoint hooks. Model weights are not downloaded yet."
+                "Bengali routes to real IndicF5BengaliEngine when ML dependencies are installed. "
+                "English F5-TTS is intentionally disabled due to CC-BY-NC-4.0 weight licensing."
             ),
         )
 
+    def runtime_details(self) -> dict[str, Any]:
+        details = self._bengali_engine.runtime_details()
+        details["engine_id"] = "f5"
+        details["english_status"] = "disabled_non_commercial_weights"
+        return details
+
     def transcribe_reference(self, reference_wav_path: Path, language_hint: str | None = None) -> str:
-        raise EngineNotReadyError(
-            "F5 auto-transcription (faster-whisper) is not enabled in the scaffold phase."
+        return self._bengali_engine.transcribe_reference(
+            reference_wav_path,
+            language_hint=language_hint,
         )
 
     def synthesize_segment(self, request: EngineSynthesisInput) -> Path:
-        model_name = "ai4bharat/IndicF5" if request.language == "bn" else "SWivid/F5-TTS"
+        if request.language == "bn":
+            return self._bengali_engine.synthesize_segment(request)
         raise EngineNotReadyError(
-            f"{model_name} inference is not implemented yet. Switch VOICE_ENGINE=mock for API testing."
+            "English F5-TTS is not enabled: SWivid/F5-TTS pre-trained weights are CC-BY-NC-4.0 "
+            "(Non-Commercial). Stage 2 will evaluate MIT-licensed Chatterbox for English."
         )

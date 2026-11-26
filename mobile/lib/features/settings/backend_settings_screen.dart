@@ -13,7 +13,10 @@ class BackendSettingsScreen extends ConsumerStatefulWidget {
 
 class _BackendSettingsScreenState extends ConsumerState<BackendSettingsScreen> {
   late final TextEditingController _urlController;
+  late final TextEditingController _tokenController;
   bool _checking = false;
+  bool _deletingRemote = false;
+  bool _obscureToken = true;
   String? _statusMessage;
   bool _hasError = false;
 
@@ -22,11 +25,13 @@ class _BackendSettingsScreenState extends ConsumerState<BackendSettingsScreen> {
     super.initState();
     final config = ref.read(appStateProvider).backendConfig;
     _urlController = TextEditingController(text: config.baseUrl);
+    _tokenController = TextEditingController(text: config.apiToken);
   }
 
   @override
   void dispose() {
     _urlController.dispose();
+    _tokenController.dispose();
     super.dispose();
   }
 
@@ -34,7 +39,10 @@ class _BackendSettingsScreenState extends ConsumerState<BackendSettingsScreen> {
     final notifier = ref.read(appStateProvider.notifier);
     final current = ref.read(appStateProvider).backendConfig;
     await notifier.saveBackendConfig(
-      current.copyWith(baseUrl: _urlController.text.trim()),
+      current.copyWith(
+        baseUrl: _urlController.text.trim(),
+        apiToken: _tokenController.text.trim(),
+      ),
     );
 
     setState(() {
@@ -85,11 +93,60 @@ class _BackendSettingsScreenState extends ConsumerState<BackendSettingsScreen> {
     if (confirmed == true) {
       await ref.read(audioPlayerProvider).stop();
       await ref.read(appStateProvider.notifier).wipeAllPrivateData();
+      _tokenController.clear();
       if (mounted) {
+        setState(() {
+          _statusMessage = null;
+          _hasError = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('All local voice data permanently deleted.')),
         );
       }
+    }
+  }
+
+  Future<void> _confirmDeleteRemoteData() async {
+    final backendUrl = ref.read(appStateProvider).backendConfig.baseUrl;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Remote Training Data?'),
+        content: Text(
+          'This permanently deletes all uploaded training datasets, speaker embeddings, '
+          'generated audio, and checkpoints from private storage at:\n$backendUrl',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete Remote Data'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _deletingRemote = true);
+    try {
+      final resp = await ref.read(appStateProvider.notifier).deleteRemoteTrainingData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Remote training storage cleared (${resp['deleted_items'] ?? 0} item(s) deleted).',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Remote delete failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deletingRemote = false);
     }
   }
 
@@ -115,8 +172,23 @@ class _BackendSettingsScreenState extends ConsumerState<BackendSettingsScreen> {
                     controller: _urlController,
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
-                      labelText: 'FastAPI / Tunnel Base URL',
+                      labelText: 'FastAPI / Tunnel Base URL (HTTPS required for remote)',
                       hintText: 'https://your-colab-tunnel.trycloudflare.com',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _tokenController,
+                    obscureText: _obscureToken,
+                    decoration: InputDecoration(
+                      labelText: 'Backend API Token (Bearer Auth)',
+                      hintText: 'Matches MYVOICE_API_TOKEN on your backend',
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureToken ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        ),
+                        onPressed: () => setState(() => _obscureToken = !_obscureToken),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -178,14 +250,33 @@ class _BackendSettingsScreenState extends ConsumerState<BackendSettingsScreen> {
                   const SizedBox(height: 8),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    value: state.backendConfig.uploadConsentRemembered,
+                    value: state.backendConfig.allowLocalHttpDev,
                     onChanged: (val) => ref.read(appStateProvider.notifier).saveBackendConfig(
-                          state.backendConfig.copyWith(uploadConsentRemembered: val),
+                          state.backendConfig.copyWith(allowLocalHttpDev: val),
                         ),
-                    title: const Text('Remember Upload Consent'),
+                    title: const Text('Allow HTTP for Local Dev Only'),
                     subtitle: const Text(
-                      'When off, the app asks for confirmation before every voice sample upload.',
+                      'Off by default. When on, allows plain http:// ONLY for localhost, '
+                      '127.0.0.1, ::1, or 10.0.2.2. Remote servers always require https://.',
                     ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Fresh explicit consent is mandatory before EVERY zero-shot or training upload '
+                    'and can never be permanently bypassed.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _deletingRemote ? null : _confirmDeleteRemoteData,
+                    icon: _deletingRemote
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_off_outlined),
+                    label: const Text('Permanently Delete Remote Backend Training Data'),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
